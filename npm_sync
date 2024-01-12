@@ -1,0 +1,50 @@
+#!/bin/bash
+
+querysql="SELECT domain_names FROM proxy_host WHERE is_deleted = 0 ORDER BY forward_host DESC"
+remotesql_user="remote" # A unique user that only has read access to the npm database
+remotesql_password="changeme"
+remotesql_database="npm"
+remotesql_host="192.168.1.8"  # Replace with your MySQL server host
+output_file="/export/docker-data/pihole/etc-pihole/custom.list" #path to your custom.list
+npmAddress="192.168.1.8"
+ 
+ # Empty the custom.list file
+> "$output_file"
+
+# Associative array to store unique domains
+declare -A unique_domains
+ 
+# Fetch and process MySQL query results
+while IFS= read -r domains; do
+    domains=$(echo "$domains" | sed 's/[][]//g' | sed 's/\"//g')
+    
+    if [[ "$domains" == *","* ]]; then
+        IFS=',' read -ra domain_array <<< "$domains"
+        
+        for domain in "${domain_array[@]}"; do
+            unique_domains["$domain"]=1
+        done
+    else
+        unique_domains["$domains"]=1
+    fi
+done < <(mysql -h "$remotesql_host" -u "$remotesql_user" -p"$remotesql_password" -D "$remotesql_database" -se "$querysql" | tr '\t' '\n')
+ 
+# Sort and add entries to the output file
+for domain in $(echo "${!unique_domains[@]}" | tr ' ' '\n' | sort); do
+    echo "$npmAddress $domain" >> "$output_file"
+done
+ 
+# Define an array of sed substitutions
+declare -a sed_substitutions=(
+    "s|$npmAddress git.example.com|192.168.1.10 git.example.com|"
+    "s|$npmAddress sub.example.com|192.168.1.11 sub.example.com|"
+
+    # Add more substitutions as needed
+ 
+)
+ 
+# Apply sed substitutions in a loop
+for substitution in "${sed_substitutions[@]}"; do
+    sed -i "$substitution" "$output_file"
+done
+ 
